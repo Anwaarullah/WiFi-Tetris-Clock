@@ -53,12 +53,12 @@
 // ---- Stuff to configure ----
 
 // Initialize Wifi connection to the router
-char ssid[] = "SSID";     // your network SSID (name)
-char password[] = "password"; // your network key
+char ssid[] = "AP NAME";     // your network SSID (name)
+char password[] = "yourcoolpassword"; // your network key
 
 // Set a timezone using the following list
 // https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-#define MYTIMEZONE "Europe/Dublin"
+#define MYTIMEZONE "Asia/Kolkata"
 
 // Sets whether the clock should be 12 hour format or not.
 bool twelveHourFormat = true;
@@ -67,7 +67,7 @@ bool twelveHourFormat = true;
 // e.g. the digit representing the least significant minute will be replaced every minute,
 // but the most significant number will only be replaced every 10 minutes.
 // When true, all digits will be replaced every minute.
-bool forceRefresh = true;
+bool forceRefresh = false;
 // -----------------------------
 
 // ----- Wiring -------
@@ -77,9 +77,9 @@ bool forceRefresh = true;
 #define P_C 18
 #define P_D 5
 #define P_E 15
-#define P_OE 26 //TinyPICO
+//#define P_OE 26 //TinyPICO
 //#define P_OE 21 //Huzzah32
-//#define P_OE 2 // Generic ESP32
+#define P_OE 2 // Generic ESP32
 // ---------------------
 
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
@@ -87,12 +87,13 @@ hw_timer_t * timer = NULL;
 hw_timer_t * animationTimer = NULL;
 
 // PxMATRIX display(32,16,P_LAT, P_OE,P_A,P_B,P_C);
-// PxMATRIX display(64,32,P_LAT, P_OE,P_A,P_B,P_C,P_D);
-PxMATRIX display(64, 32, P_LAT, P_OE, P_A, P_B, P_C, P_D, P_E);
+ PxMATRIX display(64,32,P_LAT, P_OE,P_A,P_B,P_C,P_D); // I'm using a P4 64x32 Matrix
+//PxMATRIX display(64, 32, P_LAT, P_OE, P_A, P_B, P_C, P_D, P_E);
 
 TetrisMatrixDraw tetris(display); // Main clock
 TetrisMatrixDraw tetris2(display); // The "M" of AM/PM
 TetrisMatrixDraw tetris3(display); // The "P" or "A" of AM/PM
+TetrisMatrixDraw tetris4(display); // Date 
 
 Timezone myTZ;
 unsigned long oneSecondLoopDue = 0;
@@ -107,7 +108,7 @@ String lastDisplayedAmPm = "";
 // This method is needed for driving the display
 void IRAM_ATTR display_updater() {
   portENTER_CRITICAL_ISR(&timerMux);
-  display.display(10);
+  display.display(30);
   portEXIT_CRITICAL_ISR(&timerMux);
 }
 
@@ -136,19 +137,23 @@ void animationHandler()
         bool tetris1Done = false;
         bool tetris2Done = false;
         bool tetris3Done = false;
+        bool tetris4Done = false;        
 
-        tetris1Done = tetris.drawNumbers(-6, 26, showColon);
-        tetris2Done = tetris2.drawText(56, 25);
-
+        tetris4Done = tetris4.drawText(1, 31);
+        tetris2Done = tetris2.drawText(56, 20);
         // Only draw the top letter once the bottom letter is finished.
+        if (tetris4Done) {
+          tetris1Done = tetris.drawNumbers(-6, 21, showColon);
+        }
+
         if (tetris2Done) {
-          tetris3Done = tetris3.drawText(56, 15);
+          tetris3Done = tetris3.drawText(56, 10);
         }
 
         finishedAnimating = tetris1Done && tetris2Done && tetris3Done;
 
       } else {
-        finishedAnimating = tetris.drawNumbers(2, 26, showColon);
+        finishedAnimating = tetris.drawNumbers(2, 21, showColon);
       }
     }
 #ifdef double_buffer
@@ -214,8 +219,8 @@ void setup() {
   // as it will crash!
 
   // Intialise display library
-  display.begin(16, SPI_BUS_CLK, 27, SPI_BUS_MISO, SPI_BUS_SS); // TinyPICO
-  //display.begin(16); // Generic ESP32 including Huzzah
+  //display.begin(16, SPI_BUS_CLK, 27, SPI_BUS_MISO, SPI_BUS_SS); // TinyPICO
+  display.begin(16); // Generic ESP32 including Huzzah
   display.flushDisplay();
 
   // Setup timer for driving display
@@ -263,7 +268,7 @@ void setup() {
   tetris.setText("TINY PICO");
   animationTimer = timerBegin(1, 80, true);
   timerAttachInterrupt(animationTimer, &animationHandler, true);
-  timerAlarmWrite(animationTimer, 100000, true);
+  timerAlarmWrite(animationTimer, 15000, true);
   timerAlarmEnable(animationTimer);
 
   // Wait for the animation to finish
@@ -280,6 +285,7 @@ void setup() {
 void setMatrixTime() {
   String timeString = "";
   String AmPmString = "";
+  String dateString = "";  
   if (twelveHourFormat) {
     // Get the time in format "1:15" or 11:15 (12 hour, no leading 0)
     // Check the EZTime Github page for info on
@@ -291,18 +297,19 @@ void setMatrixTime() {
     if (timeString.length() == 4) {
       timeString = " " + timeString;
     }
-
     //Get if its "AM" or "PM"
     AmPmString = myTZ.dateTime("A");
+    dateString = myTZ.dateTime("j/M/y"); // Get the Date String
+    dateString.toUpperCase();
     if (lastDisplayedAmPm != AmPmString) {
       Serial.println(AmPmString);
       lastDisplayedAmPm = AmPmString;
       // Second character is always "M"
       // so need to parse it out
       tetris2.setText("M", forceRefresh);
-
       // Parse out first letter of String
       tetris3.setText(AmPmString.substring(0, 1), forceRefresh);
+      tetris4.setText(dateString, forceRefresh);
     }
   } else {
     // Get time in format "01:15" or "22:15"(24 hour with leading 0)
@@ -330,7 +337,7 @@ void handleColonAfterAnimation() {
   int x = twelveHourFormat ? -6 : 2;
   // The y position adjusted for where the blocks will fall from
   // (this could be better!)
-  int y = 26 - (TETRIS_Y_DROP_DEFAULT * tetris.scale);
+  int y = 21 - (TETRIS_Y_DROP_DEFAULT * tetris.scale);
   tetris.drawColon(x, y, colour);
 }
 
